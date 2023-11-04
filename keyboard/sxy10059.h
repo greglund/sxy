@@ -88,6 +88,54 @@ extern "C" {
 
 #define HWFC           true
 
+// PA       DIN25 Pin   nRF52 Port
+// PA0      13          P0.24
+// PA1      19          P0.21
+// PA2      18          P0.19
+// PA3      17          P0.17
+// PA4      16          P0.10
+// PA5      15          P0.08
+// PA6      14          P0.11
+// PA7      20          P0.23
+#define PA0             NRF_GPIO_PIN_MAP(0, 24)
+#define PA1             NRF_GPIO_PIN_MAP(0, 21)
+#define PA2             NRF_GPIO_PIN_MAP(0, 19)
+#define PA3             NRF_GPIO_PIN_MAP(0, 17)
+#define PA4             NRF_GPIO_PIN_MAP(0, 10)
+#define PA5             NRF_GPIO_PIN_MAP(0, 8)
+#define PA6             NRF_GPIO_PIN_MAP(0, 11)
+#define PA7             NRF_GPIO_PIN_MAP(0, 23)
+
+// PB       DIN25 Pin   nRF52 Port
+// PB0      12          P0.22
+// PB1      11          P0.20
+// PB2      10          P0.30
+// PB3      5           P0.07
+// PB4      8           P0.09
+// PB5      7           P0.12
+// PB6      6           P0.06
+// PB7      9           P0.31
+#define PB0             NRF_GPIO_PIN_MAP(0, 22)
+#define PB1             NRF_GPIO_PIN_MAP(0, 20)
+#define PB2             NRF_GPIO_PIN_MAP(0, 30)
+#define PB3             NRF_GPIO_PIN_MAP(0, 7)
+#define PB4             NRF_GPIO_PIN_MAP(0, 9)
+#define PB5             NRF_GPIO_PIN_MAP(0, 12)
+#define PB6             NRF_GPIO_PIN_MAP(0, 6)
+#define PB7             NRF_GPIO_PIN_MAP(0, 31)
+
+// Modifier DIN25 Pin
+// Restore  3           P0.05
+// ShiftLck 21          P0.25
+#define RESTORE         NRF_GPIO_PIN_MAP(0, 5)
+#define SHIFT_LOCK      NRF_GPIO_PIN_MAP(0, 25)
+
+// LED
+// LShftLck 22          P1.00
+#define LED_SHIFT_LOCK  NRF_GPIO_PIN_MAP(1, 0)
+
+
+
 #ifdef __cplusplus
 }
 #endif

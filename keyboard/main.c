@@ -51,6 +51,9 @@
 #include "ble_advdata.h"
 #include "ble_conn_params.h"
 #include "ble_srv_common.h"
+#include "keyboard.h"
+#include "nrf_delay.h"
+#include "nrf_gpio.h"
 #include "nrf_ble_gatt.h"
 #include "nrf_log_ctrl.h"
 #include "nrf_log_default_backends.h"
@@ -115,6 +118,7 @@ NRF_LOG_MODULE_REGISTER();
 static void log_init(void);
 static void timers_init(void);
 static void power_management_init(void);
+static void keyboard_module_init(void);
 static void ble_stack_init(void);
 static void gap_params_init(void);
 static void gatt_init(void);
@@ -128,6 +132,7 @@ static void peer_manager_init(void);
 
 static void advertising_start(void);
 
+static void kbd_timer_handler(void* context);
 static void ble_evt_handler(ble_evt_t const* evt, void* ctx);
 static void gatt_evt_handler(nrf_ble_gatt_t* gatt, nrf_ble_gatt_evt_t const* evt);
 static void on_adv_evt(ble_adv_evt_t ble_adv_evt);
@@ -198,6 +203,8 @@ static const ble_uuid128_t sxy_uuid_base =
     .uuid128 = SXY_UUID_BASE,
 };
 
+static struct keyboard_ctx kbd_ctx;
+APP_TIMER_DEF(kbd_timer);
 NRF_SDH_BLE_OBSERVER(ble_observer, APP_BLE_OBSERVER_PRIO, ble_evt_handler, NULL);
 NRF_BLE_GATT_DEF(gatt);                                                 /**< GATT module instance. */
 BLE_ADVERTISING_DEF(advertising);                                       /**< Advertising module instance. */
@@ -225,6 +232,7 @@ int main(void)
     log_init();
     timers_init();
     power_management_init();
+    keyboard_module_init();
     ble_stack_init();
     gap_params_init();
     gatt_init();
@@ -268,6 +276,19 @@ static void power_management_init(void)
     ret_code_t err_code;
 
     err_code = nrf_pwr_mgmt_init();
+    APP_ERROR_CHECK(err_code);
+}
+
+static void keyboard_module_init(void)
+{
+    ret_code_t err_code;
+
+    keyboard_init(&kbd_ctx);
+
+    err_code = app_timer_create(&kbd_timer, APP_TIMER_MODE_REPEATED, kbd_timer_handler);
+    APP_ERROR_CHECK(err_code);
+
+    err_code = app_timer_start(kbd_timer, APP_TIMER_TICKS(1000/60), NULL);
     APP_ERROR_CHECK(err_code);
 }
 
@@ -507,6 +528,41 @@ static void advertising_start(void)
 
     err_code = ble_advertising_start(&advertising, BLE_ADV_MODE_FAST);
     APP_ERROR_CHECK(err_code);
+}
+
+static void kbd_timer_handler(void* context)
+{
+    struct keyboard_return keyboard_return = keyboard_scan(&kbd_ctx);
+
+    switch (keyboard_return.scan_return)
+    {
+        case SCAN_RETURN_SUCCESS:
+            NRF_LOG_DEBUG("kbd_timer_handler: alpha_num: %x, non_alpha_flag_x: %x, non_alpha_flag_y: %x", 
+                    keyboard_return.alpha_num,
+                    keyboard_return.non_alpha_flag_x,
+                    keyboard_return.non_alpha_flag_y);
+            break;
+
+        case SCAN_RETURN_NO_ACTIVITY:
+            break;
+
+        case SCAN_RETURN_AWAITING_NO_ACTIVITY:
+            NRF_LOG_DEBUG("kbd_timer_handler: SCAN_RETURN_AWAITING_NO_ACTIVITY");
+            break;
+
+        case SCAN_RETURN_KEY_SHADOWING_DETECTED:
+            NRF_LOG_DEBUG("kbd_timer_handler: SCAN_RETURN_KEY_SHADOWING_DETECTED");
+            break;
+
+        case SCAN_RETURN_MULTIPLE_KEYS_WITHIN_ONE_SCAN:
+            NRF_LOG_DEBUG("kbd_timer_handler: SCAN_RETURN_MULTIPLE_KEYS_WITHIN_ONE_SCAN");
+            break;
+
+        default:
+            // Should not happen
+            NRF_LOG_INFO("kbd_timer_handler: unknown code %d", (int) keyboard_return.scan_return);
+            break;
+    }
 }
 
 static void ble_evt_handler(ble_evt_t const* evt, void* ctx)

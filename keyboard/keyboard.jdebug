@@ -4,8 +4,8 @@
 *                         www.segger.com                             *
 **********************************************************************
 
-File          : /Users/greg/Code/sxy/src/sxy.jdebug
-Created       : 1 Oct 2023 16:34
+File          : /Users/greg/Code/sxy/keyboard/keyboard.jdebug
+Created       : 20 Oct 2023 21:07
 Ozone Version : V3.28e
 */
 
@@ -23,13 +23,12 @@ void OnProjectLoad (void) {
   // Dialog-generated settings
   //
   Project.AddPathSubstitute (".", "$(ProjectDir)");
-	Project.AddPathSubstitute ("../nrf5sdk", "$(SDKDir)");
   Project.SetDevice ("nRF52840_xxAA");
   Project.SetHostIF ("USB", "");
   Project.SetTargetIF ("SWD");
   Project.SetTIFSpeed ("4 MHz");
   Project.AddSvdFile ("$(InstallDir)/Config/CPU/Cortex-M4F.svd");
-  Project.AddSvdFile ("$(SDKDir)/modules/nrfx/mdk/nrf52840.svd");
+  Project.AddSvdFile ("$(ProjectDir)/../nrf5sdk/modules/nrfx/mdk/nrf52840.svd");
   //
   // User settings
   //
@@ -330,7 +329,7 @@ void _SetupTarget(void) {
   unsigned int VectorTableAddr;
 
   //VectorTableAddr = Elf.GetBaseAddr();
-	VectorTableAddr = 0; // Always set to 0 to mimic power-on reset, reset softdevice, etc
+  VectorTableAddr = 0;
   //
   // Set up initial stack pointer
   //
