@@ -51,6 +51,7 @@
 #include "ble_advdata.h"
 #include "ble_conn_params.h"
 #include "ble_srv_common.h"
+#include "boards.h"
 #include "keyboard.h"
 #include "nrf_delay.h"
 #include "nrf_gpio.h"
@@ -115,6 +116,54 @@ NRF_LOG_MODULE_REGISTER();
 
 #define INPUT_REPORT_KEYS_MAX_LEN   8                                   /**< Maximum length of the Input Report characteristic. */
 
+#define P0_PIN_MSK(n)   (((n) >> 5) == 0 ? (1 << ((n) & 0x1F)) : 0)
+#define P1_PIN_MSK(n)   (((n) >> 5) == 1 ? (1 << ((n) & 0x1F)) : 0)
+
+#define P0_PA_MSK  (0 \
+    | P0_PIN_MSK(PA0) \
+    | P0_PIN_MSK(PA1) \
+    | P0_PIN_MSK(PA2) \
+    | P0_PIN_MSK(PA3) \
+    | P0_PIN_MSK(PA4) \
+    | P0_PIN_MSK(PA5) \
+    | P0_PIN_MSK(PA6) \
+    | P0_PIN_MSK(PA7) \
+    )
+
+#define P1_PA_MSK  (0 \
+    | P1_PIN_MSK(PA0) \
+    | P1_PIN_MSK(PA1) \
+    | P1_PIN_MSK(PA2) \
+    | P1_PIN_MSK(PA3) \
+    | P1_PIN_MSK(PA4) \
+    | P1_PIN_MSK(PA5) \
+    | P1_PIN_MSK(PA6) \
+    | P1_PIN_MSK(PA7) \
+    )
+
+#define P0_PB_MSK  (0 \
+    | P0_PIN_MSK(PB0) \
+    | P0_PIN_MSK(PB1) \
+    | P0_PIN_MSK(PB2) \
+    | P0_PIN_MSK(PB3) \
+    | P0_PIN_MSK(PB4) \
+    | P0_PIN_MSK(PB5) \
+    | P0_PIN_MSK(PB6) \
+    | P0_PIN_MSK(PB7) \
+    )
+
+#define P1_PB_MSK  (0 \
+    | P1_PIN_MSK(PB0) \
+    | P1_PIN_MSK(PB1) \
+    | P1_PIN_MSK(PB2) \
+    | P1_PIN_MSK(PB3) \
+    | P1_PIN_MSK(PB4) \
+    | P1_PIN_MSK(PB5) \
+    | P1_PIN_MSK(PB6) \
+    | P1_PIN_MSK(PB7) \
+    )
+
+
 static void log_init(void);
 static void timers_init(void);
 static void power_management_init(void);
@@ -143,6 +192,10 @@ static void on_hid_rep_char_write(ble_hids_evt_t* evt);
 static void on_conn_params_evt(ble_conn_params_evt_t* evt);
 static void conn_params_error_handler(uint32_t nrf_error);
 static void pm_evt_handler(pm_evt_t const* evt);
+static void pa_cfg_output(void);
+static void pb_cfg_input_pull_high(void);
+static void pa_out_write(uint8_t value);
+static uint8_t pb_in_read(void);
 
 
 static const uint8_t report_map_data[] =
@@ -201,6 +254,37 @@ static const uint8_t report_map_data[] =
 static const ble_uuid128_t sxy_uuid_base =
 {
     .uuid128 = SXY_UUID_BASE,
+};
+static const uint32_t porta_pins[] = 
+{
+    PA0,
+    PA1,
+    PA2,
+    PA3,
+    PA4,
+    PA5,
+    PA6,
+    PA7,
+};
+
+static const uint32_t portb_pins[] = 
+{
+    PB0,
+    PB1,
+    PB2,
+    PB3,
+    PB4,
+    PB5,
+    PB6,
+    PB7,
+};
+
+static const struct keyboard_init_data kbd_init_data =
+{
+    .pa_cfg_output = pa_cfg_output,
+    .pb_cfg_input_pull_high = pb_cfg_input_pull_high,
+    .pa_out_write = pa_out_write,
+    .pb_in_read = pb_in_read,
 };
 
 static struct keyboard_ctx kbd_ctx;
@@ -283,7 +367,7 @@ static void keyboard_module_init(void)
 {
     ret_code_t err_code;
 
-    keyboard_init(&kbd_ctx);
+    keyboard_init(&kbd_ctx, &kbd_init_data);
 
     err_code = app_timer_create(&kbd_timer, APP_TIMER_MODE_REPEATED, kbd_timer_handler);
     APP_ERROR_CHECK(err_code);
@@ -534,7 +618,7 @@ static void kbd_timer_handler(void* context)
 {
     struct keyboard_return keyboard_return = keyboard_scan(&kbd_ctx);
 
-    switch (keyboard_return.scan_return)
+    switch (keyboard_return.keyboard_scan_return)
     {
         case SCAN_RETURN_SUCCESS:
             NRF_LOG_DEBUG("kbd_timer_handler: alpha_num: %x, non_alpha_flag_x: %x, non_alpha_flag_y: %x", 
@@ -560,7 +644,7 @@ static void kbd_timer_handler(void* context)
 
         default:
             // Should not happen
-            NRF_LOG_INFO("kbd_timer_handler: unknown code %d", (int) keyboard_return.scan_return);
+            NRF_LOG_INFO("kbd_timer_handler: unknown code %d", (int) keyboard_return.keyboard_scan_return);
             break;
     }
 }
@@ -715,3 +799,61 @@ static void pm_evt_handler(pm_evt_t const* evt)
     pm_handler_disconnect_on_sec_failure(evt);
     pm_handler_flash_clean(evt);
 }
+
+static void pa_cfg_output(void)
+{
+    nrf_gpio_port_dir_output_set(NRF_P0, P0_PA_MSK);
+    nrf_gpio_port_dir_output_set(NRF_P1, P1_PA_MSK);
+}
+
+static void pb_cfg_input_pull_high(void)
+{
+    for (int i = 0; i < sizeof(portb_pins) / sizeof(portb_pins[0]); i++)
+        nrf_gpio_cfg_input(portb_pins[i], NRF_GPIO_PIN_PULLUP);
+}
+
+static void pa_out_write(uint8_t value)
+{
+    uint32_t p0_clr_msk = 0;
+    uint32_t p0_set_msk = 0;
+    uint32_t p1_clr_msk = 0;
+    uint32_t p1_set_msk = 0;
+
+    for (int i = 0; i < 8; i++, value >>= 1)
+    {
+        if (value & 1)
+        {
+            p0_set_msk |= P0_PIN_MSK(porta_pins[i]);
+            p1_set_msk |= P1_PIN_MSK(porta_pins[i]);
+        }
+        else
+        {
+            p0_clr_msk |= P0_PIN_MSK(porta_pins[i]);
+            p1_clr_msk |= P1_PIN_MSK(porta_pins[i]);
+        }
+    }
+
+    nrf_gpio_port_out_clear(NRF_P0, p0_clr_msk);
+    nrf_gpio_port_out_clear(NRF_P1, p1_clr_msk);
+    nrf_gpio_port_out_set(NRF_P0, p0_set_msk);
+    nrf_gpio_port_out_set(NRF_P1, p1_set_msk);
+    nrf_delay_us(100);
+}
+
+static uint8_t pb_in_read(void)
+{
+    uint32_t p0_msk = nrf_gpio_port_in_read(NRF_P0);
+    uint32_t p1_msk = nrf_gpio_port_in_read(NRF_P1);
+
+    uint8_t out = 0;
+
+    for (int i = 0; i < 8; i++)
+    {
+        if ((p0_msk & P0_PIN_MSK(portb_pins[i])) ||
+            (p1_msk & P1_PIN_MSK(portb_pins[i])))
+            out |= (1 << i);
+    }
+
+    return out;
+}
+

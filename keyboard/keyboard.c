@@ -20,66 +20,11 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "boards.h"
-#include "nrf_delay.h"
-#include "nrf_gpio.h"
 #include "keyboard.h"
 
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
-
-
-#define P0_PIN_MSK(n)   (((n) >> 5) == 0 ? (1 << ((n) & 0x1F)) : 0)
-#define P1_PIN_MSK(n)   (((n) >> 5) == 1 ? (1 << ((n) & 0x1F)) : 0)
-
-#define P0_PA_MSK  (0 \
-    | P0_PIN_MSK(PA0) \
-    | P0_PIN_MSK(PA1) \
-    | P0_PIN_MSK(PA2) \
-    | P0_PIN_MSK(PA3) \
-    | P0_PIN_MSK(PA4) \
-    | P0_PIN_MSK(PA5) \
-    | P0_PIN_MSK(PA6) \
-    | P0_PIN_MSK(PA7) \
-    )
-
-#define P1_PA_MSK  (0 \
-    | P1_PIN_MSK(PA0) \
-    | P1_PIN_MSK(PA1) \
-    | P1_PIN_MSK(PA2) \
-    | P1_PIN_MSK(PA3) \
-    | P1_PIN_MSK(PA4) \
-    | P1_PIN_MSK(PA5) \
-    | P1_PIN_MSK(PA6) \
-    | P1_PIN_MSK(PA7) \
-    )
-
-#define P0_PB_MSK  (0 \
-    | P0_PIN_MSK(PB0) \
-    | P0_PIN_MSK(PB1) \
-    | P0_PIN_MSK(PB2) \
-    | P0_PIN_MSK(PB3) \
-    | P0_PIN_MSK(PB4) \
-    | P0_PIN_MSK(PB5) \
-    | P0_PIN_MSK(PB6) \
-    | P0_PIN_MSK(PB7) \
-    )
-
-#define P1_PB_MSK  (0 \
-    | P1_PIN_MSK(PB0) \
-    | P1_PIN_MSK(PB1) \
-    | P1_PIN_MSK(PB2) \
-    | P1_PIN_MSK(PB3) \
-    | P1_PIN_MSK(PB4) \
-    | P1_PIN_MSK(PB5) \
-    | P1_PIN_MSK(PB6) \
-    | P1_PIN_MSK(PB7) \
-    )
-
-#define GET_FLAG(i, p, f) \
-    (((ctx->scan_results_p0[i] ^ UINT32_MAX) & P0_PIN_MSK(p) ? f : 0) | \
-     ((ctx->scan_results_p1[i] ^ UINT32_MAX) & P1_PIN_MSK(p) ? f : 0))
 
 
 static const uint8_t key_table[] =
@@ -94,42 +39,20 @@ static const uint8_t key_table[] =
     0xff, 0x11, 0xff, 0x20, 0x32, 0xff, 0x1f, 0x31,  // RUN STOP, "Q", "C=" (CMD), " " (SPC), "2", "CTRL", "<-", "1"
 };
 
-static const uint32_t porta_pins[] = 
+static enum keyboard_scan_return keyboard_key_in_row(struct keyboard_ctx* ctx, int index, uint32_t scan_result);
+static uint8_t keyboard_rotate_left(uint8_t data);
+
+
+void keyboard_init(struct keyboard_ctx* ctx, const struct keyboard_init_data* init)
 {
-    PA0,
-    PA1,
-    PA2,
-    PA3,
-    PA4,
-    PA5,
-    PA6,
-    PA7,
-};
+    ctx->pa_cfg_output = init->pa_cfg_output;
+    ctx->pb_cfg_input_pull_high = init->pb_cfg_input_pull_high;
+    ctx->pa_out_write = init->pa_out_write;
+    ctx->pb_in_read = init->pb_in_read;
 
-static const uint32_t portb_pins[] = 
-{
-    PB0,
-    PB1,
-    PB2,
-    PB3,
-    PB4,
-    PB5,
-    PB6,
-    PB7,
-};
-
-
-static enum scan_return key_in_row(struct keyboard_ctx* ctx, int index, uint32_t scan_result_p0, uint32_t scan_result_p1);
-
-
-void keyboard_init(struct keyboard_ctx* ctx)
-{
     // Set port direction
-    nrf_gpio_port_dir_output_set(NRF_P0, P0_PA_MSK);
-    nrf_gpio_port_dir_output_set(NRF_P1, P1_PA_MSK);
-
-    for (int i = 0; i < sizeof(portb_pins) / sizeof(portb_pins[0]); i++)
-        nrf_gpio_cfg_input(portb_pins[i], NRF_GPIO_PIN_PULLUP);
+    ctx->pa_cfg_output();
+    ctx->pb_cfg_input_pull_high();
 
     memset(ctx->buffer_old, 0xFF, sizeof(ctx->buffer_old));
     memset(ctx->buffer, 0xFF, sizeof(ctx->buffer));
@@ -141,43 +64,34 @@ struct keyboard_return keyboard_scan(struct keyboard_ctx* ctx)
     struct keyboard_return keyboard_return = {0};
 
     // Connect all Keyboard rows
-    nrf_gpio_port_out_clear(NRF_P0, P0_PA_MSK);
-    nrf_gpio_port_out_clear(NRF_P1, P1_PA_MSK);
-    nrf_delay_us(100);
+    ctx->pa_out_write(0);
 
     // Check for port activity
-    if (((nrf_gpio_port_in_read(NRF_P0) & P0_PB_MSK) == P0_PB_MSK) &&
-        ((nrf_gpio_port_in_read(NRF_P1) & P1_PB_MSK) == P1_PB_MSK))
+    if (ctx->pb_in_read() == 0xFF)
     {
         ctx->simultaneous_alphanumeric_keys_flag = false;
         memset(ctx->buffer_old, 0xFF, sizeof(ctx->buffer_old));
-        keyboard_return.scan_return = SCAN_RETURN_NO_ACTIVITY;
+        keyboard_return.keyboard_scan_return = SCAN_RETURN_NO_ACTIVITY;
         return keyboard_return;
     }
 
     // Wait for  all keys to be released before accepting new input
     if (ctx->simultaneous_alphanumeric_keys_flag)
     {
-        keyboard_return.scan_return = SCAN_RETURN_AWAITING_NO_ACTIVITY;
+        keyboard_return.keyboard_scan_return = SCAN_RETURN_AWAITING_NO_ACTIVITY;
         return keyboard_return;
     }
 
     // Scan keyboard matrix
-    nrf_gpio_port_out_set(NRF_P0, P0_PA_MSK & ~(P0_PIN_MSK(porta_pins[0])));
-    nrf_gpio_port_out_set(NRF_P1, P1_PA_MSK & ~(P1_PIN_MSK(porta_pins[0])));
-    nrf_delay_us(100);
-    ctx->scan_results_p0[7] = nrf_gpio_port_in_read(NRF_P0) & P0_PB_MSK;
-    ctx->scan_results_p1[7] = nrf_gpio_port_in_read(NRF_P1) & P1_PB_MSK;
+    uint8_t strobe = 0xFE;
+    ctx->pa_out_write(strobe);
+    ctx->scan_results[7] = ctx->pb_in_read();
 
     for (int i = 6; i > -1; i--)
     {
-        nrf_gpio_port_out_set(NRF_P0, P0_PIN_MSK(porta_pins[6 - i]));
-        nrf_gpio_port_out_set(NRF_P1, P1_PIN_MSK(porta_pins[6 - i]));
-        nrf_gpio_port_out_clear(NRF_P0, P0_PIN_MSK(porta_pins[6 - i + 1]));
-        nrf_gpio_port_out_clear(NRF_P1, P1_PIN_MSK(porta_pins[6 - i + 1]));
-        nrf_delay_us(100);
-        ctx->scan_results_p0[i] = nrf_gpio_port_in_read(NRF_P0) & P0_PB_MSK;
-        ctx->scan_results_p1[i] = nrf_gpio_port_in_read(NRF_P1) & P1_PB_MSK;
+        strobe = keyboard_rotate_left(strobe);
+        ctx->pa_out_write(strobe);
+        ctx->scan_results[i] = ctx->pb_in_read();
     }
 
     // Initialize buffer, flags and max keys
@@ -188,37 +102,20 @@ struct keyboard_return keyboard_scan(struct keyboard_ctx* ctx)
     ctx->simultaneous_keys = 0xFE;
 
     // Check and flag non-alphanumeric keys
-    uint8_t left_shift = GET_FLAG(6, PB7, 0x40);
+    ctx->non_alpha_flag_y = ((ctx->scan_results[6] ^ 0xFF) & 0x80) >> 1; // Left SHIFT key
+    ctx->non_alpha_flag_y |= ((ctx->scan_results[0] ^ 0xFF) & 0xA4); // RUN STOP - C= - CTRL
+    ctx->non_alpha_flag_y |= ((ctx->scan_results[1] ^ 0xFF) & 0x18); // Right SHIFT - CLR HOME
 
-    uint8_t runstop = GET_FLAG(0, PB7, 0x80);
-    uint8_t commodore = GET_FLAG(0, PB5, 0x20);
-    uint8_t ctrl = GET_FLAG(0, PB2, 0x04);
-
-    uint8_t right_shift = GET_FLAG(1, PB4, 0x10);
-    uint8_t clr_home = GET_FLAG(1, PB3, 0x08);
-
-    ctx->non_alpha_flag_y = left_shift | runstop | commodore | ctrl | right_shift | clr_home;
-
-    uint8_t crsr_down = GET_FLAG(7, PB7, 0x80);
-    uint8_t f5 = GET_FLAG(7, PB6, 0x40);
-    uint8_t f3 = GET_FLAG(7, PB5, 0x20);
-    uint8_t f1 = GET_FLAG(7, PB4, 0x10);
-    uint8_t f7 = GET_FLAG(7, PB3, 0x08);
-    uint8_t crsr_right = GET_FLAG(7, PB2, 0x04);
-    uint8_t retkey = GET_FLAG(7, PB1, 0x02);
-    uint8_t del = GET_FLAG(7, PB0, 0x01);
-
-    ctx->non_alpha_flag_x = crsr_down | f5 | f3 | f1 | f7 | crsr_right | retkey | del;
+    ctx->non_alpha_flag_x = ctx->scan_results[7] ^ 0xFF;    // The rest
     
     // Check for pressed keys
     for (int i = 7; i > -1; i--)
     {
-        if (((ctx->scan_results_p0[i] & P0_PB_MSK) != P0_PB_MSK) ||
-            ((ctx->scan_results_p1[i] & P1_PB_MSK) != P1_PB_MSK))
+        if (ctx->scan_results[i] != 0xFF)
         {
-            keyboard_return.scan_return = key_in_row(ctx, (7 - i) * 8, ctx->scan_results_p0[i], ctx->scan_results_p1[i]);
+            keyboard_return.keyboard_scan_return = keyboard_key_in_row(ctx, (7 - i) * 8, ctx->scan_results[i]);
 
-            if (keyboard_return.scan_return != SCAN_RETURN_SUCCESS)
+            if (keyboard_return.keyboard_scan_return != SCAN_RETURN_SUCCESS)
                 return keyboard_return;
         }
     }
@@ -249,7 +146,7 @@ struct keyboard_return keyboard_scan(struct keyboard_ctx* ctx)
                 {
                     ctx->buffer_quantity = -1;
                     ctx->simultaneous_alphanumeric_keys_flag = true;
-                    keyboard_return.scan_return = SCAN_RETURN_MULTIPLE_KEYS_WITHIN_ONE_SCAN;
+                    keyboard_return.keyboard_scan_return = SCAN_RETURN_MULTIPLE_KEYS_WITHIN_ONE_SCAN;
                     return keyboard_return;
                 }
             }
@@ -270,17 +167,16 @@ struct keyboard_return keyboard_scan(struct keyboard_ctx* ctx)
     memcpy(ctx->buffer_old, ctx->buffer_new, MAX_KEY_ROLLOVER);
     keyboard_return.non_alpha_flag_x = ctx->non_alpha_flag_x;
     keyboard_return.non_alpha_flag_y = ctx->non_alpha_flag_y;
-    keyboard_return.scan_return = SCAN_RETURN_SUCCESS;
+    keyboard_return.keyboard_scan_return = SCAN_RETURN_SUCCESS;
     return keyboard_return;
 }
 
 
-static enum scan_return key_in_row(struct keyboard_ctx* ctx, int index, uint32_t scan_result_p0, uint32_t scan_result_p1)
+static enum keyboard_scan_return keyboard_key_in_row(struct keyboard_ctx* ctx, int index, uint32_t scan_result)
 {
     for (int i = 0; i < 8; i++)
     {
-        if (((scan_result_p0 & P0_PIN_MSK(portb_pins[7 - i])) == 0) &&
-            ((scan_result_p1 & P1_PIN_MSK(portb_pins[7 - i])) == 0))
+        if ((scan_result & (1 << (7 - i))) == 0)
         {
             // KeyFound
             if (ctx->key_quantity == 0)
@@ -296,3 +192,7 @@ static enum scan_return key_in_row(struct keyboard_ctx* ctx, int index, uint32_t
     return SCAN_RETURN_SUCCESS;
 }
 
+static uint8_t keyboard_rotate_left(uint8_t data)
+{
+    return ((data >> 7) & 0x01) | (data << 1);
+}

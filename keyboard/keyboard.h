@@ -33,7 +33,7 @@ extern "C"
 #endif
 
 #define MAX_KEY_ROLLOVER    3
-enum scan_return
+enum keyboard_scan_return
 {
     SCAN_RETURN_SUCCESS,
     SCAN_RETURN_NO_ACTIVITY,
@@ -44,10 +44,21 @@ enum scan_return
     SCAN_RETURNS,
 };
 
+struct keyboard_init_data
+{
+    void (*pa_cfg_output)(void);
+    void (*pb_cfg_input_pull_high)(void);
+    void (*pa_out_write)(uint8_t value);
+    uint8_t (*pb_in_read)(void);
+};
+
 struct keyboard_ctx
 {
-    uint32_t scan_results_p0[8];
-    uint32_t scan_results_p1[8];
+    void (*pa_cfg_output)(void);
+    void (*pb_cfg_input_pull_high)(void);
+    void (*pa_out_write)(uint8_t value);
+    uint8_t (*pb_in_read)(void);
+    uint8_t scan_results[8];
     uint8_t buffer_new[MAX_KEY_ROLLOVER];
     uint8_t buffer_old[MAX_KEY_ROLLOVER];
     uint8_t buffer[4];
@@ -61,14 +72,14 @@ struct keyboard_ctx
 
 struct keyboard_return
 {
-    enum scan_return scan_return;
+    enum keyboard_scan_return keyboard_scan_return;
     uint8_t alpha_num;
     uint8_t non_alpha_flag_x;
     uint8_t non_alpha_flag_y;
 };
 
 
-void keyboard_init(struct keyboard_ctx* ctx);
+void keyboard_init(struct keyboard_ctx* ctx, const struct keyboard_init_data* init);
 struct keyboard_return keyboard_scan(struct keyboard_ctx* ctx);
 
 #if defined(__cplusplus)
